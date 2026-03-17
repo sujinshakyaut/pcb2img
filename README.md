@@ -34,6 +34,9 @@ The script prompts for mode, DPI, colors, and layout. Press Enter to accept defa
 Mode: split  |  Layout: vertical  |  DPI: 600
 ```
 
+<img width="1200" height="1000" alt="temp_sense_redesign_art" src="https://github.com/user-attachments/assets/555bfa77-6421-47a8-b558-97e859014da4" />
+
+
 Renders front and back views stacked vertically with FRONT/BACK labels, aligned and padded to the same dimensions.
 
 ### Art
