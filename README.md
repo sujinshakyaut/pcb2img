@@ -1,17 +1,15 @@
 # pcb2img
-
 Convert KiCad PCB files into high-quality PNG images from the command line.
 
 ## Render Modes
 
-**Art** — Stylized traces with custom colors (e.g. white on black). Great for wall art, social media, or README headers.
-
-**Split** — Front and back of the board rendered side-by-side or stacked, with labels. Perfect for documentation and pinout diagrams.
+**Art**: Stylized traces with custom colors (e.g. white on black). Great for wall art, social media, or README headers.
+**Split**: Front and back of the board rendered side-by-side or stacked, with labels. Perfect for documentation and pinout diagrams.
 
 ## Requirements
 
-- [KiCad 9+](https://www.kicad.org/download/) (`kicad-cli`)
-- [ImageMagick](https://imagemagick.org/) (`convert` or `magick`)
+[KiCad 9+](https://www.kicad.org/download/) (`kicad-cli`)
+[ImageMagick](https://imagemagick.org/) (`convert` or `magick`)
 
 ```bash
 # Ubuntu / WSL
@@ -31,11 +29,9 @@ The script prompts for mode, DPI, colors, and layout. Press Enter to accept defa
 ## Examples
 
 ### Split (vertical)
-
 ```
 Mode: split  |  Layout: vertical  |  DPI: 600
 ```
-
 Renders front and back views stacked vertically with FRONT/BACK labels, aligned and padded to the same dimensions.
 
 ### Art
@@ -43,7 +39,6 @@ Renders front and back views stacked vertically with FRONT/BACK labels, aligned 
 ```
 Mode: art  |  Trace: #FFFFFF  |  Background: #000000  |  Layers: F.Cu,B.Cu,Edge.Cuts
 ```
-
 Exports a black-and-white SVG, then recolors traces and background to your chosen colors.
 
 ## Options
