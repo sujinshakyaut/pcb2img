@@ -34,9 +34,6 @@ The script prompts for mode, DPI, colors, and layout. Press Enter to accept defa
 Mode: split  |  Layout: vertical  |  DPI: 600
 ```
 
-<img width="500" height="600" alt="temp_sense_redesign_art" src="https://github.com/user-attachments/assets/555bfa77-6421-47a8-b558-97e859014da4" />
-
-
 Renders front and back views stacked vertically with FRONT/BACK labels, aligned and padded to the same dimensions.
 
 ### Art
@@ -66,6 +63,7 @@ Exports a black-and-white SVG, then recolors traces and background to your chose
 4. **Art mode**: thresholds to B&W, masks traces, composites with chosen colors
 5. **Split mode**: renders front/back separately, pads to equal size, labels, and appends
 
-## License
 
-MIT
+## Examples
+
+<img width="400" height="600" alt="temp_sense_redesign_art" src="https://github.com/user-attachments/assets/555bfa77-6421-47a8-b558-97e859014da4" />
