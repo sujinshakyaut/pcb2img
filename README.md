@@ -1,12 +1,6 @@
 # pcb2img
 Convert KiCad PCB files into high-quality PNG images from the command line.
 
-## Render Modes
-
-**Art**: Stylized traces with custom colors (e.g. white on black). Great for wall art, social media, or README headers.
-
-**Split**: Front and back of the board rendered side-by-side or stacked, with labels. Perfect for documentation and pinout diagrams.
-
 ## Requirements
 
 [KiCad 9+](https://www.kicad.org/download/) (`kicad-cli`)
