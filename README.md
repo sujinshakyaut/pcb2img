@@ -31,6 +31,6 @@ Convert KiCad `.kicad_pcb` files to PNG — front and back combined in one image
 4. Flips the back vertically to match physical orientation
 5. Labels, pads, and combines into one image
 
-## License
+## Example
 
-MIT
+<img width="600" height="800" alt="pps-pd_split" src="https://github.com/user-attachments/assets/feec5fa5-acc8-407c-87d3-6fd02c0e6f31" />
