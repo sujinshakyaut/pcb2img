@@ -33,4 +33,4 @@ Convert KiCad `.kicad_pcb` files to PNG — front and back combined in one image
 
 ## Example
 
-<img width="600" height="800" alt="pps-pd_split" src="https://github.com/user-attachments/assets/feec5fa5-acc8-407c-87d3-6fd02c0e6f31" />
+<img width="400" height="500" alt="pps-pd_split" src="https://github.com/user-attachments/assets/feec5fa5-acc8-407c-87d3-6fd02c0e6f31" />
