@@ -1,6 +1,6 @@
-# pcb2img
+# PCB2IMG
 
-Turn KiCad PCB files into high-resolution art. White traces on black, custom palettes, wall-ready output — in a single command.
+Turn KiCad PCB files into high-resolution art. White traces on black, custom palettes, wall-ready output in a single command.
 
 ```bash
 ./pcb2img my_board.kicad_pcb
