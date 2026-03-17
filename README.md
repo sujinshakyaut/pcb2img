@@ -59,6 +59,6 @@ Exports a black-and-white SVG, then recolors traces and background to your chose
 
 
 ## Examples
-<img width="400" height="200" alt="pps-pd_art" src="https://github.com/user-attachments/assets/47f570db-2a9f-4344-a5fc-3e0c4dcaf992" />
+<img width="400" height="300" alt="pps-pd_art" src="https://github.com/user-attachments/assets/47f570db-2a9f-4344-a5fc-3e0c4dcaf992" />
 
 <img width="400" height="600" alt="temp_sense_redesign_art" src="https://github.com/user-attachments/assets/555bfa77-6421-47a8-b558-97e859014da4" />
