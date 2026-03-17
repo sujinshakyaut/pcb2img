@@ -1,279 +1,273 @@
 #!/usr/bin/env bash
-
+# ============================================================================
+#  pcb2img — KiCad PCB to Image Converter
+# ============================================================================
+#
 #  Converts a KiCad PCB file (.kicad_pcb) into a high-quality PNG image.
 #
-#  Render modes:
-#    art   — Stylized traces with custom colors
-#    split — Front & back views combined (stacked or side-by-side)
+#  Modes:
+#    split (default) — Front silkscreen + back copper, combined vertically
+#    art             — Stylized single-color traces on solid background
 #
-#  Requirements:  KiCad 9+  •  ImageMagick
+#  Requirements:  KiCad 9+ (kicad-cli)  •  ImageMagick
 #
 #  Usage:
-#    ./pcb2img.sh  board.kicad_pcb
-#    ./pcb2img.sh  board.kicad_pcb  output.png
+#    ./pcb2img.sh board.kicad_pcb                        # split mode
+#    ./pcb2img.sh board.kicad_pcb -m art                 # art mode
+#    ./pcb2img.sh board.kicad_pcb -o out.png -d 800      # custom output & DPI
+#    ./pcb2img.sh board.kicad_pcb -m split -l horizontal  # side-by-side
 #
 # ============================================================================
 
 set -euo pipefail
 
+# ── Defaults ────────────────────────────────────────────────────────────────
 
-DEFAULT_MODE="split"
-DEFAULT_BG_COLOR="#000000"
-DEFAULT_TRACE_COLOR="#FFFFFF"
-DEFAULT_DPI=600
-DEFAULT_ART_LAYERS="F.Cu,B.Cu,Edge.Cuts"
-DEFAULT_SPLIT_LAYERS="F.Cu,F.SilkS,F.Mask,Edge.Cuts"
-
+MODE="split"
+DPI=600
+LAYOUT="vertical"
+BG_COLOR="#000000"
+TRACE_COLOR="#FFFFFF"
+ART_LAYERS="F.Cu,B.Cu,Edge.Cuts"
+OUTPUT=""
 KICAD_CLI=""
-MAGICK_CMD=""
+MAGICK=""
 
-info() { echo -e "\033[1;32m[INFO]\033[0m $1"; }
-warn() { echo -e "\033[1;33m[WARN]\033[0m $1"; }
-die()  { echo -e "\033[1;31m[ERROR]\033[0m $1" >&2; exit 1; }
+# ── Logging ─────────────────────────────────────────────────────────────────
 
-show_help() {
-    cat << 'EOF'
+info() { printf '\033[1;32m[INFO]\033[0m %s\n' "$1"; }
+warn() { printf '\033[1;33m[WARN]\033[0m %s\n' "$1"; }
+die()  { printf '\033[1;31m[ERROR]\033[0m %s\n' "$1" >&2; exit 1; }
 
-  pcb2img — KiCad PCB to Image Converter
+# ── Usage ───────────────────────────────────────────────────────────────────
 
-  USAGE:
-      ./pcb2img.sh <board.kicad_pcb> [output.png]
+usage() {
+    cat <<'EOF'
+Usage: pcb2img.sh <board.kicad_pcb> [options]
 
-  RENDER MODES:
-      art   — Stylized single-color traces on solid background
-      split — Front & back combined into one image
-
+Options:
+  -o FILE    Output filename (default: <board>_<mode>.png)
+  -m MODE    Render mode: split (default) or art
+  -d DPI     Resolution (default: 600)
+  -l LAYOUT  Split layout: vertical (default) or horizontal
+  --bg HEX   Art background color (default: #000000)
+  --fg HEX   Art trace color (default: #FFFFFF)
+  --layers   Art layers (default: F.Cu,B.Cu,Edge.Cuts)
+  -h         Show this help
 EOF
     exit 0
 }
 
-# Export SVG via kicad-cli
-kicad_export_svg() {
-    local out_svg="$1" layers="$2" input="$3"
-    shift 3
-    "$KICAD_CLI" pcb export svg \
-        --output "$out_svg" \
-        --layers "$layers" \
-        --exclude-drawing-sheet \
-        --page-size-mode 2 \
-        "$@" "$input" 2>&1 || true
-    [[ -f "$out_svg" ]] || die "KiCad SVG export failed."
-}
+# ── Find tools ──────────────────────────────────────────────────────────────
 
-# Convert SVG → PNG at configured DPI
-svg_to_png() {
-    local svg="$1" png="$2"
-    $MAGICK_CMD -density "$DPI" -background white "$svg" -flatten "$png"
-    [[ -f "$png" ]] || die "SVG to PNG conversion failed."
-}
-
-
-check_requirements() {
-    local missing=0
-
+find_tools() {
     if command -v kicad-cli &>/dev/null; then
         KICAD_CLI="kicad-cli"
     elif [[ -f "/mnt/c/Program Files/KiCad/9.0/bin/kicad-cli.exe" ]]; then
         KICAD_CLI="/mnt/c/Program Files/KiCad/9.0/bin/kicad-cli.exe"
     else
-        warn "kicad-cli not found! Install KiCad 9+ from https://www.kicad.org/download/"
-        missing=1
+        die "kicad-cli not found. Install KiCad 9+ from https://www.kicad.org/download/"
     fi
 
     if command -v magick &>/dev/null; then
-        MAGICK_CMD="magick"
+        MAGICK="magick"
     elif command -v convert &>/dev/null; then
-        MAGICK_CMD="convert"
+        MAGICK="convert"
     else
-        warn "ImageMagick not found! sudo apt install imagemagick"
-        missing=1
+        die "ImageMagick not found. Install: sudo apt install imagemagick"
     fi
 
-    [[ $missing -eq 1 ]] && die "Missing required tools."
-    info "kicad-cli : ${KICAD_CLI}"
-    info "magick    : ${MAGICK_CMD}"
+    info "kicad-cli: $KICAD_CLI"
+    info "magick:    $MAGICK"
 }
 
-ask_settings() {
-    echo ""
-    echo "  ┌──────────────────────────────────────────┐"
-    echo "  │  Render settings (Enter = keep default)  │"
-    echo "  └──────────────────────────────────────────┘"
-    echo ""
-    echo "  Modes:  1) art   2) split"
-    read -rp "  Mode [${DEFAULT_MODE}]: " input_mode
-    RENDER_MODE="${input_mode:-$DEFAULT_MODE}"
-    [[ "$RENDER_MODE" == "1" ]] && RENDER_MODE="art"
-    [[ "$RENDER_MODE" == "2" ]] && RENDER_MODE="split"
+# ── Core helpers ────────────────────────────────────────────────────────────
 
-    # DPI
-    read -rp "  DPI [${DEFAULT_DPI}]: " input_dpi
-    DPI="${input_dpi:-$DEFAULT_DPI}"
-
-    # Split-specific settings
-    SPLIT_LAYOUT="vertical"
-    if [[ "$RENDER_MODE" == "split" ]]; then
-        echo "  Layout:  1) vertical   2) horizontal"
-        read -rp "  Layout [vertical]: " input_layout
-        SPLIT_LAYOUT="${input_layout:-vertical}"
-        [[ "$SPLIT_LAYOUT" == "1" ]] && SPLIT_LAYOUT="vertical"
-        [[ "$SPLIT_LAYOUT" == "2" ]] && SPLIT_LAYOUT="horizontal"
-    fi
-
-    # Art-specific settings
-    BG_COLOR="" ; TRACE_COLOR="" ; LAYERS=""
-    if [[ "$RENDER_MODE" == "art" ]]; then
-        read -rp "  Background color [${DEFAULT_BG_COLOR}]: " input_bg
-        BG_COLOR="${input_bg:-$DEFAULT_BG_COLOR}"
-        read -rp "  Trace color [${DEFAULT_TRACE_COLOR}]: " input_trace
-        TRACE_COLOR="${input_trace:-$DEFAULT_TRACE_COLOR}"
-        echo "  Layers: F.Cu  B.Cu  Edge.Cuts  F.SilkS  B.SilkS"
-        read -rp "  Layers [${DEFAULT_ART_LAYERS}]: " input_layers
-        LAYERS="${input_layers:-$DEFAULT_ART_LAYERS}"
-    fi
-
-    echo ""
-    info "Mode: ${RENDER_MODE}  |  DPI: ${DPI}"
-    [[ "$RENDER_MODE" == "split" ]] && info "Layout: ${SPLIT_LAYOUT}"
-    [[ "$RENDER_MODE" == "art" ]]   && info "Colors: ${TRACE_COLOR} on ${BG_COLOR}  |  Layers: ${LAYERS}"
-    echo ""
+export_svg() {
+    local svg="$1" layers="$2" board="$3"
+    shift 3
+    "$KICAD_CLI" pcb export svg \
+        --output "$svg" \
+        --layers "$layers" \
+        --exclude-drawing-sheet \
+        --page-size-mode 2 \
+        "$@" "$board" 2>&1 || true
+    [[ -f "$svg" ]] || die "SVG export failed for layers: $layers"
 }
 
-render_pcb() {
-    local input_file
-    input_file="$(realpath "$1")"
-    local output_file="$2"
-
-    local tmp_dir
-    tmp_dir=$(mktemp -d)
-    trap "rm -rf '${tmp_dir}'" EXIT
-    info "Temp: ${tmp_dir}"
-
-    # Copy to temp dir (kicad-cli can't handle spaces in paths)
-    local board="${tmp_dir}/board.kicad_pcb"
-    cp "$input_file" "$board"
-
-    case "$RENDER_MODE" in
-        art)   render_art   "$board" "$output_file" "$tmp_dir" ;;
-        split) render_split "$board" "$output_file" "$tmp_dir" ;;
-        *)     die "Unknown mode: $RENDER_MODE" ;;
-    esac
-
-    info "Output: ${output_file} ($(du -h "$output_file" | cut -f1))"
+svg_to_png() {
+    local svg="$1" png="$2"
+    $MAGICK -density "$DPI" -background white "$svg" -flatten "$png"
+    [[ -f "$png" ]] || die "SVG→PNG conversion failed: $svg"
 }
 
-
-render_art() {
-    local board="$1" output="$2" tmp="$3"
-    local svg="${tmp}/export.svg" png="${tmp}/export.png"
-
-    info "Exporting B&W SVG..."
-    kicad_export_svg "$svg" "$LAYERS" "$board" --black-and-white
-
-    info "Converting to PNG..."
-    svg_to_png "$svg" "$png"
-
-    info "Applying colors (${TRACE_COLOR} on ${BG_COLOR})..."
-
-    $MAGICK_CMD "$png" -grayscale Rec709Luminance -threshold 50% "${tmp}/mask.png"
-    $MAGICK_CMD "${tmp}/mask.png" -negate "${tmp}/mask_inv.png"
-    $MAGICK_CMD "${tmp}/mask_inv.png" -fill "${TRACE_COLOR}" -colorize 100 "${tmp}/trace.png"
-    $MAGICK_CMD "${tmp}/trace.png" "${tmp}/mask_inv.png" \
-        -compose CopyOpacity -composite "${tmp}/alpha.png"
-    $MAGICK_CMD -size "$(identify -format '%wx%h' "${tmp}/alpha.png")" \
-        "xc:${BG_COLOR}" "${tmp}/alpha.png" \
-        -compose Over -composite "$output"
-}
-
+# ── Split render ────────────────────────────────────────────────────────────
 
 render_split() {
     local board="$1" output="$2" tmp="$3"
 
-    local front_layers="F.Cu,F.SilkS,F.Mask,Edge.Cuts"
-    local back_layers="B.Cu,B.SilkS,B.Mask,Edge.Cuts"
+    # Front: copper + mask + board outline (no silkscreen)
+    local front_layers="F.Cu,F.Mask,Edge.Cuts"
+    # Back: copper + mask + board outline (no silkscreen)
+    local back_layers="B.Cu,B.Mask,Edge.Cuts"
 
-    # --- Front ---
+    # ── Export Edge.Cuts only to get the true board bounding box ──
+    info "Detecting board outline..."
+    export_svg "${tmp}/edge.svg" "Edge.Cuts" "$board"
+    svg_to_png "${tmp}/edge.svg" "${tmp}/edge_raw.png"
+    # The board outline trimmed gives us the exact board bbox
+    local bbox
+    bbox=$($MAGICK "${tmp}/edge_raw.png" -fuzz 5% -trim -format '%wx%h%O' info:)
+    info "Board bbox: $bbox"
+
+    # ── Export front ──
     info "Rendering front..."
-    kicad_export_svg "${tmp}/front.svg" "$front_layers" "$board"
+    export_svg "${tmp}/front.svg" "$front_layers" "$board"
     svg_to_png "${tmp}/front.svg" "${tmp}/front_raw.png"
-    $MAGICK_CMD "${tmp}/front_raw.png" -trim +repage "${tmp}/front.png"
+    # Crop to board bbox (clips off-board refs like R7, dimension arrows)
+    $MAGICK "${tmp}/front_raw.png" -crop "$bbox" +repage "${tmp}/front.png"
 
-    # --- Back (mirrored as if flipping the board) ---
+    # ── Export back (flipped vertically — like lifting the board upward) ──
     info "Rendering back..."
-    kicad_export_svg "${tmp}/back.svg" "$back_layers" "$board"
+    export_svg "${tmp}/back.svg" "$back_layers" "$board"
     svg_to_png "${tmp}/back.svg" "${tmp}/back_raw.png"
-    $MAGICK_CMD "${tmp}/back_raw.png" -trim +repage -flop "${tmp}/back.png"
+    # Crop to same board bbox, then vertical flip
+    $MAGICK "${tmp}/back_raw.png" -crop "$bbox" +repage -flip "${tmp}/back.png"
 
-    # --- Pad both to same dimensions for alignment ---
-    local fw fh bw bh tw th
+    # ── Normalize to same width ──
+    local fw bw tw fh bh
     fw=$(identify -format '%w' "${tmp}/front.png")
-    fh=$(identify -format '%h' "${tmp}/front.png")
     bw=$(identify -format '%w' "${tmp}/back.png")
+    fh=$(identify -format '%h' "${tmp}/front.png")
     bh=$(identify -format '%h' "${tmp}/back.png")
     tw=$(( fw > bw ? fw : bw ))
-    th=$(( fh > bh ? fh : bh ))
 
-    $MAGICK_CMD "${tmp}/front.png" \
-        -gravity center -background white -extent "${tw}x${th}" \
-        "${tmp}/front_pad.png"
-    $MAGICK_CMD "${tmp}/back.png" \
-        -gravity center -background white -extent "${tw}x${th}" \
-        "${tmp}/back_pad.png"
+    $MAGICK "${tmp}/front.png" -gravity center -background white \
+        -extent "${tw}x${fh}" "${tmp}/front_pad.png"
+    $MAGICK "${tmp}/back.png" -gravity center -background white \
+        -extent "${tw}x${bh}" "${tmp}/back_pad.png"
 
-    # --- Add labels ---
-    local label_size=$(( tw / 30 ))
-    [[ $label_size -lt 16 ]] && label_size=16
-    local label_pad=$(( label_size + 16 ))
+    # ── Add labels with generous padding (prevents clipping) ──
+    local label_size=$(( tw / 35 ))
+    (( label_size < 16 )) && label_size=16
+    (( label_size > 40 )) && label_size=40
+    # Total pad = space above text + text height + space below text
+    local pad_top=$(( label_size * 2 ))
+    # Vertical offset to center text within the padded strip
+    local text_offset=$(( (pad_top - label_size) / 2 ))
 
-    $MAGICK_CMD "${tmp}/front_pad.png" \
-        -gravity North -background white -splice "0x${label_pad}" \
-        -gravity North -pointsize "$label_size" -fill "#555555" \
-        -annotate +0+4 "FRONT" \
-        "${tmp}/front_final.png"
+    for side in front back; do
+        local label
+        [[ "$side" == "front" ]] && label="FRONT" || label="BACK"
 
-    $MAGICK_CMD "${tmp}/back_pad.png" \
-        -gravity North -background white -splice "0x${label_pad}" \
-        -gravity North -pointsize "$label_size" -fill "#555555" \
-        -annotate +0+4 "BACK" \
-        "${tmp}/back_final.png"
+        $MAGICK "${tmp}/${side}_pad.png" \
+            -gravity North -background white -splice "0x${pad_top}" \
+            -gravity North -pointsize "$label_size" \
+            -fill "#444444" \
+            -annotate "+0+${text_offset}" "$label" \
+            "${tmp}/${side}_label.png"
+    done
 
-    # --- Combine ---
-    info "Combining (${SPLIT_LAYOUT})..."
-    if [[ "$SPLIT_LAYOUT" == "horizontal" ]]; then
-        $MAGICK_CMD "${tmp}/front_final.png" "${tmp}/back_final.png" \
+    # ── Combine ──
+    local gap=30
+    info "Combining ($LAYOUT)..."
+    if [[ "$LAYOUT" == "horizontal" ]]; then
+        $MAGICK "${tmp}/front_label.png" \
+            \( -size "${gap}x1" xc:white \) \
+            "${tmp}/back_label.png" \
             +append -bordercolor white -border 20 "$output"
     else
-        $MAGICK_CMD "${tmp}/front_final.png" "${tmp}/back_final.png" \
+        $MAGICK "${tmp}/front_label.png" \
+            \( -size "1x${gap}" xc:white \) \
+            "${tmp}/back_label.png" \
             -append -bordercolor white -border 20 "$output"
     fi
 }
 
+# ── Art render ──────────────────────────────────────────────────────────────
+
+render_art() {
+    local board="$1" output="$2" tmp="$3"
+
+    info "Exporting B&W SVG..."
+    export_svg "${tmp}/art.svg" "$ART_LAYERS" "$board" --black-and-white
+
+    info "Converting to PNG..."
+    svg_to_png "${tmp}/art.svg" "${tmp}/art_raw.png"
+
+    info "Applying colors ($TRACE_COLOR on $BG_COLOR)..."
+    $MAGICK "${tmp}/art_raw.png" \
+        -grayscale Rec709Luminance -threshold 50% "${tmp}/mask.png"
+
+    # Traces = dark pixels in the original (white after negate)
+    $MAGICK "${tmp}/mask.png" -negate \
+        -fill "$TRACE_COLOR" -colorize 100 "${tmp}/trace.png"
+
+    # Composite: colored traces over solid background
+    $MAGICK "${tmp}/trace.png" "${tmp}/mask.png" \
+        -compose CopyOpacity -composite "${tmp}/alpha.png"
+
+    local dims
+    dims=$(identify -format '%wx%h' "${tmp}/alpha.png")
+    $MAGICK -size "$dims" "xc:${BG_COLOR}" \
+        "${tmp}/alpha.png" -compose Over -composite "$output"
+}
+
+# ── Main ────────────────────────────────────────────────────────────────────
+
 main() {
-    echo ""
-    echo "  ╔════════════════════════════════╗"
-    echo "  ║   pcb2img — KiCad PCB to PNG   ║"
-    echo "  ╚════════════════════════════════╝"
-    echo ""
+    # Parse args
+    local input=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -h|--help)    usage ;;
+            -o)           OUTPUT="$2"; shift 2 ;;
+            -m)           MODE="$2"; shift 2 ;;
+            -d)           DPI="$2"; shift 2 ;;
+            -l)           LAYOUT="$2"; shift 2 ;;
+            --bg)         BG_COLOR="$2"; shift 2 ;;
+            --fg)         TRACE_COLOR="$2"; shift 2 ;;
+            --layers)     ART_LAYERS="$2"; shift 2 ;;
+            -*)           die "Unknown option: $1" ;;
+            *)
+                [[ -z "$input" ]] && input="$1" || die "Unexpected argument: $1"
+                shift ;;
+        esac
+    done
 
-    [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]] && show_help
+    [[ -z "$input" ]] && die "No input file. Run with -h for usage."
+    [[ -f "$input" ]] || die "File not found: $input"
+    [[ "$MODE" == "split" || "$MODE" == "art" ]] || die "Invalid mode: $MODE (use split or art)"
 
-    local input="${1:-}"
-    [[ -z "$input" ]] && die "No input file. Usage: ./pcb2img.sh <board.kicad_pcb>"
-    [[ -f "$input" ]] || die "File not found: ${input}"
-
+    # Default output name
     local base
     base=$(basename "$input" .kicad_pcb)
-    local output="${2:-${base}_art.png}"
-
-    info "Input  : ${input}"
-    info "Output : ${output}"
-
-    check_requirements
-    ask_settings
-    render_pcb "$input" "$output"
+    OUTPUT="${OUTPUT:-${base}_${MODE}.png}"
 
     echo ""
-    echo "  Done! ✓"
+    echo "  pcb2img — KiCad PCB → PNG"
+    echo ""
+    info "Input:  $input"
+    info "Output: $OUTPUT"
+    info "Mode:   $MODE  |  DPI: $DPI"
+
+    find_tools
+
+    # Work in a temp dir (avoids path issues with kicad-cli)
+    local tmp
+    tmp=$(mktemp -d)
+    trap "rm -rf '${tmp}'" EXIT
+
+    local board="${tmp}/board.kicad_pcb"
+    cp "$input" "$board"
+
+    case "$MODE" in
+        split) render_split "$board" "$OUTPUT" "$tmp" ;;
+        art)   render_art   "$board" "$OUTPUT" "$tmp" ;;
+    esac
+
+    echo ""
+    info "Done! → $OUTPUT ($(du -h "$OUTPUT" | cut -f1))"
     echo ""
 }
 
